@@ -1,0 +1,50 @@
+VR_NAME=$(shell basename $$(pwd))
+IMAGES=$(shell ls $(IMAGE_GLOB) 2>/dev/null)
+NUM_IMAGES=$(shell ls $(IMAGES) | wc -l)
+
+ifeq ($(NUM_IMAGES), 0)
+docker-image: no-image usage
+else
+docker-image:
+	for IMAGE in $(IMAGES); do \
+		echo "Making $$IMAGE"; \
+		$(MAKE) IMAGE=$$IMAGE docker-build; \
+	done
+endif
+
+docker-clean-build:
+	-rm -f docker/*.qcow2* docker/*.tgz* docker/*.vmdk* docker/*.iso
+
+docker-pre-build: ;
+
+docker-build-image-copy:
+	cp $(IMAGE)* docker/
+
+docker-build-common: docker-clean-build docker-pre-build
+	@if [ -z "$$IMAGE" ]; then echo "ERROR: No IMAGE specified"; exit 1; fi
+	@if [ "$(IMAGE)" = "$(VERSION)" ]; then echo "ERROR: Incorrect version string ($(IMAGE))"; exit 1; fi
+	@echo "Building docker image using $(IMAGE) as $(REGISTRY)vr-$(VR_NAME):$(VERSION)"
+	cp ../common/* docker/
+	$(MAKE) IMAGE=$$IMAGE docker-build-image-copy
+	(cd docker; docker build --build-arg http_proxy=$(http_proxy) --build-arg https_proxy=$(https_proxy) --build-arg IMAGE=$(IMAGE) -t $(REGISTRY)vr-$(VR_NAME):$(VERSION) .)
+
+docker-build: docker-build-common
+
+docker-push:
+	for IMAGE in $(IMAGES); do \
+		$(MAKE) IMAGE=$$IMAGE docker-push-image; \
+	done
+
+docker-push-image:
+	@if [ -z "$$IMAGE" ]; then echo "ERROR: No IMAGE specified"; exit 1; fi
+	@if [ "$(IMAGE)" = "$(VERSION)" ]; then echo "ERROR: Incorrect version string"; exit 1; fi
+	docker push $(REGISTRY)vr-$(VR_NAME):$(VERSION)
+
+usage:
+	@echo "Usage: put the $(VENDOR) $(NAME) $(IMAGE_FORMAT) image in this directory and run:"
+	@echo "  make"
+
+no-image:
+	@echo "ERROR: you have no $(IMAGE_FORMAT) ($(IMAGE_GLOB)) image"
+
+all: docker-image
